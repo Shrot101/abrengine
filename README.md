@@ -301,7 +301,7 @@ This behaviour reflects a learned strategy: start safe, ramp up quickly, then ho
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/abrengine-rl.git
+git clone https://github.com/Shrot101/abrengine-rl.git
 cd abrengine-rl
 
 # Install dependencies
@@ -310,7 +310,7 @@ pip install torch numpy matplotlib
 # Python 3.9+ required
 ```
 
-No GPU required. Training on CPU completes in approximately 20–40 minutes for 3,000 episodes.
+GPU required. Training on GPU completes in approximately 20–40 minutes for 3,000 episodes.
 
 ---
 
@@ -365,19 +365,22 @@ Each trace file contains two columns: `timestamp_ms  bandwidth_Mbps`.
 
 ```
 abrengine-rl/
-├── env.py            ← Streaming environment (pure NumPy, no ML dependency)
-├── model.py          ← A3C actor-critic network (PyTorch)
-├── train.py          ← Training loop + state builder + checkpointing
-├── test.py           ← Evaluation against baselines + plotting
 ├── README.md
-├── checkpoints/
-│   ├── abrengine_ep500.pt
-│   ├── abrengine_ep1000.pt
-│   ├── abrengine_final.pt
-│   └── training_curves.png
-└── results/
-    ├── eval_comparison.png
-    └── episode_trace.png
+├── requirements.txt           
+│
+├── src/
+│   ├── env.py                 ← Streaming environment
+│   ├── model.py               ← A3C network
+│   ├── train.py               ← Training loop
+│   └── test.py                ← Evaluation
+│
+├── results/
+│   ├── training_curves.png
+│   ├── eval_comparison.png
+│   └── episode_trace.png            ← Instructions for downloading traces
+│
+└── checkpoints/      
+    └── *.pt            
 ```
 
 ---
