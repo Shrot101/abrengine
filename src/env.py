@@ -13,7 +13,7 @@ import math
 import numpy as np
 import os
 
-# ── Video settings (matching original paper: Pensieve, SIGCOMM '17) ──────────────────────
+# ── Video settings ──────────────────────
 VIDEO_CHUNK_LEN   = 4.0          # seconds per chunk
 BITRATES          = [300, 750, 1200, 1850, 2850, 4300]   # kbps
 NUM_BITRATES      = len(BITRATES)
@@ -24,9 +24,7 @@ LINK_RTT          = 80           # ms baseline RTT
 PACKET_SIZE       = 1500         # bytes
 NUM_CHUNKS        = 48           # chunks per video (≈ 3-min video at 4s each)
 
-# Chunk sizes (bytes) for each bitrate level — synthetic but realistic.
-# In the real repo these come from get_video_sizes.py scanning actual video.
-# Here we generate them proportionally so you can run without any media files.
+
 def _make_chunk_sizes():
     rng = np.random.default_rng(42)
     sizes = {}
@@ -59,7 +57,6 @@ class VideoStreamEnv:
 
         self.reset()
 
-    # ── public API ─────────────────────────────────────────────────────────
 
     def reset(self):
         """Start a new episode. Returns the initial (zero) state."""
