@@ -1,4 +1,4 @@
-# ABREngine — Adaptive Bitrate Streaming with Deep Reinforcement Learning
+# ABREngine: Adaptive Bitrate Streaming with Deep Reinforcement Learning
 
 > A PyTorch implementation of a reinforcement learning–based adaptive bitrate (ABR) controller for HTTP video streaming, inspired by the Pensieve system (Mao et al., SIGCOMM '17). Built from scratch as an end-to-end RL research reproduction and systems engineering project.
 
