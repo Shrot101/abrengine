@@ -301,8 +301,8 @@ This behaviour reflects a learned strategy: start safe, ramp up quickly, then ho
 
 ```bash
 # Clone the repository
-git clone https://github.com/Shrot101/abrengine-rl.git
-cd abrengine-rl
+git clone https://github.com/Shrot101/abrengine.git
+cd abrengine
 
 # Install dependencies
 pip install torch numpy matplotlib
