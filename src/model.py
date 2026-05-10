@@ -22,7 +22,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-# ── Dimensions (matching original repo constants) ──────────────────────────
+# ── Dimensions ──────────────────────────
 S_INFO   = 6    # number of input feature streams
 S_LEN    = 8    # history window length
 A_DIM    = 6    # number of bitrate levels (actions)
