@@ -4,7 +4,6 @@
 
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue?logo=python)](https://python.org)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C?logo=pytorch)](https://pytorch.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![A3C](https://img.shields.io/badge/Algorithm-A3C-purple)]()
 [![Status](https://img.shields.io/badge/Status-Trained%20%26%20Evaluated-brightgreen)]()
 
@@ -245,7 +244,7 @@ where `Aₜ = Rₜ − V(sₜ)` is the advantage and `Rₜ` is the discounted Mo
 
 ### Training Curves
 
-![Training Curves](training_curves.png)
+![Training Curves](results/training_curves.png)
 
 **What the plot shows:** Three panels tracking 5,000 training episodes (smoothed with a 100-episode window): QoE reward (top), average bitrate selected (middle), and total rebuffering per episode (bottom).
 
@@ -260,7 +259,7 @@ The training trajectory indicates the agent is genuinely learning the QoE tradeo
 
 ### Baseline Comparison
 
-![Evaluation Comparison](eval_comparison.png)
+![Evaluation Comparison](results/eval_comparison.png)
 
 **What the plot shows:** Bar charts comparing five policies across QoE reward, total rebuffering per episode, and average bitrate selected, evaluated over 100 episodes on held-out random seeds.
 
@@ -284,7 +283,7 @@ The training trajectory indicates the agent is genuinely learning the QoE tradeo
 
 ### Single Episode Trace
 
-![Episode Trace](episode_trace.png)
+![Episode Trace](results/episode_trace.png)
 
 **What the plot shows:** A single evaluation episode, showing bitrate decisions (top), buffer level over time (middle), and per-step reward (bottom).
 
