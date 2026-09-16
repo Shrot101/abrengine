@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>abrengine — telemetry</title>
+    <link rel="stylesheet" href="/vendor/video-js.css" />
+    <script type="module">
+      import { STYLE } from '/_shared.js';
+      document.head.insertAdjacentHTML('beforeend', `<style>${STYLE}</style>`);
+    </script>
+    <script type="importmap">
+      { "imports": { "onnxruntime-web": "/vendor/ort.mjs" } }
+    </script>
+  </head>
+  <body>
+    <main>
+      <h1>Telemetry</h1>
+      <p class="sub">
+        Every decision, with the state tensor that produced it and the softmax that
+        came back. This is what makes an ABR controller debuggable.
+      </p>
+
+      <video id="video" class="video-js" controls muted playsinline preload="auto"></video>
+
+      <div class="row"><span id="summary">waiting for the first decision…</span></div>
+
+      <h2 style="font-size: 1rem">Decisions</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th><th>source</th><th>action</th><th>selected</th>
+            <th>buffer</th><th>throughput</th><th>download</th><th>infer</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+
+      <h2 style="font-size: 1rem">Latest model I/O</h2>
+      <pre id="io">—</pre>
+    </main>
+
+    <!-- Must run before video.js. See codec-shim.js — a CI-only no-op in a normal browser. -->
+    <script src="/codec-shim.js"></script>
+    <script src="/vendor/video.js"></script>
+    <script type="module">
+      import { AbrEngine, ROW, S_LEN, TRAINING_LADDER_KBPS } from '/pkg/index.js';
+      import { VideoJSAbrAdapter } from '/pkg/videojs.js';
+
+
+      const player = videojs('video');
+
+      const abr = new AbrEngine({
+        model: 'ac3',
+        // Telemetry is off by default. `includeTensors` additionally copies the
+        // model input and output into each event — two small array copies per
+        // decision, worth it while debugging, not worth it in production.
+        telemetry: { enabled: true, includeTensors: true, historySize: 200 },
+      });
+
+      const adapter = new VideoJSAbrAdapter({ player, abr });
+      await adapter.initialize();
+
+      player.src({ src: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', type: 'application/x-mpegURL' });
+      player.play().catch(() => {});
+
+      const rows = document.getElementById('rows');
+      const io = document.getElementById('io');
+      const summary = document.getElementById('summary');
+      let n = 0;
+      const inferTimes = [];
+
+      const mbps = (bps) => (bps == null ? '—' : `${(bps / 1e6).toFixed(2)} Mbps`);
+
+      abr.on('decision', (e) => {
+        n++;
+        inferTimes.push(e.inferenceMs);
+        const sorted = [...inferTimes].sort((a, b) => a - b);
+
+        const cls =
+          e.decision.source === 'model'
+            ? 'model'
+            : e.decision.source === 'fallback'
+              ? 'fallback'
+              : 'default';
+        const label =
+          e.decision.source === 'model'
+            ? 'model'
+            : `${e.decision.source}: ${e.decision.reason}`;
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${n}</td>
+          <td><span class="pill ${cls}">${label}</span></td>
+          <td>${e.decision.actionIndex ?? '—'}</td>
+          <td>${e.decision.representationId || '(player default)'} · ${mbps(e.selectedBitrateBps)}</td>
+          <td>${e.bufferSec.toFixed(1)} s</td>
+          <td>${mbps(e.throughputBps)}</td>
+          <td>${e.downloadSec == null ? '—' : `${e.downloadSec.toFixed(2)} s`}</td>
+          <td>${e.inferenceMs.toFixed(2)} ms</td>`;
+        rows.prepend(tr);
+        while (rows.children.length > 40) rows.lastChild.remove();
+
+        summary.textContent =
+          `${n} decisions · inference p50 ${sorted[Math.floor(sorted.length / 2)].toFixed(2)} ms · ` +
+          `p95 ${sorted[Math.floor(sorted.length * 0.95)].toFixed(2)} ms · runtime ${abr.runtime}`;
+
+        if (e.modelInput && e.decision.model) {
+          const s = e.modelInput;
+          const row = (r) => Array.from(s.slice(r * S_LEN, (r + 1) * S_LEN));
+          const f = (a, d = 3) => a.map((x) => x.toFixed(d).padStart(8)).join(' ');
+          io.textContent =
+            `state tensor (6 x 8)\n` +
+            `  0 throughput  Mbps  ${f(row(ROW.THROUGHPUT))}\n` +
+            `  1 downloadSec       ${f(row(ROW.DOWNLOAD))}\n` +
+            `  2 nextChunk  /1e6B  ${f(row(ROW.CHUNK_SIZES))}\n` +
+            `  3 buffer       /10s ${f(row(ROW.BUFFER))}\n` +
+            `  4 remaining    /48  ${f(row(ROW.REMAINING))}\n` +
+            `  5 lastAction   /5   ${f(row(ROW.LAST_BITRATE))}\n\n` +
+            `policy π(a|s)\n` +
+            e.decision.model.actionProbs
+              .map(
+                (p, i) =>
+                  `  a${i} ${String(TRAINING_LADDER_KBPS[i]).padStart(4)} kbps  ` +
+                  `${p.toFixed(4)}  ${'█'.repeat(Math.round(p * 40))}` +
+                  (i === e.decision.actionIndex ? '  ← argmax' : ''),
+              )
+              .join('\n') +
+            `\n\ncritic V(s) = ${e.decision.model.stateValue.toFixed(4)}` +
+            (e.decision.safetyClamp
+              ? `\n\nSAFETY CLAMP ${e.decision.safetyClamp.fromRepresentationId} → ` +
+                `${e.decision.safetyClamp.toRepresentationId}`
+              : '');
+        }
+      });
+
+      abr.on('error', (e) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>—</td><td colspan="7"><span class="pill fallback">${e.reason}</span> ${e.message}</td>`;
+        rows.prepend(tr);
+      });
+
+      window.abr = abr;
+    </script>
+  </body>
+</html>

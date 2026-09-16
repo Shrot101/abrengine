@@ -1,0 +1,98 @@
+{
+  "name": "abrengine",
+  "version": "0.1.0",
+  "description": "Run a trained reinforcement-learning ABR controller (Pensieve-style A3C) as the adaptive-bitrate algorithm in JavaScript video players. Framework-agnostic core + Video.js/VHS adapter.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist",
+    "models",
+    "README.md",
+    "LICENSE"
+  ],
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./videojs": {
+      "types": "./dist/videojs.d.ts",
+      "import": "./dist/videojs.js",
+      "require": "./dist/videojs.cjs"
+    },
+    "./models/ac3-controller.onnx": "./models/ac3-controller.onnx",
+    "./models/ac3-controller.json": "./models/ac3-controller.json",
+    "./models/*": "./models/*",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:browser": "node ../../test-e2e/run.mjs",
+    "lint": "eslint src test",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "size": "node ../../scripts/report-size.mjs",
+    "bench": "node ../../scripts/bench.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "onnxruntime-node": ">=1.17.0",
+    "onnxruntime-web": ">=1.17.0",
+    "video.js": ">=8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "onnxruntime-web": {
+      "optional": true
+    },
+    "onnxruntime-node": {
+      "optional": true
+    },
+    "video.js": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "eslint": "^9.17.0",
+    "onnxruntime-web": "^1.29.0",
+    "playwright": "^1.63.0",
+    "prettier": "^3.4.2",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "video.js": "^8.24.0",
+    "vitest": "^2.1.8"
+  },
+  "keywords": [
+    "abr",
+    "adaptive-bitrate",
+    "video",
+    "videojs",
+    "vhs",
+    "hls",
+    "dash",
+    "reinforcement-learning",
+    "pensieve",
+    "onnx",
+    "onnxruntime"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Shrot101/abrengine.git",
+    "directory": "packages/abrengine"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

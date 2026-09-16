@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  package:
+    name: Build, typecheck, lint, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
+      - run: npm test
+      - run: npm run bench
+
+  browser:
+    name: End-to-end in a real browser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      # Real Google Chrome, not Playwright's bundled Chromium: videojs-http-streaming
+      # refuses to register its source handler unless the browser can decode
+      # H.264 + AAC in MediaSource, and the bundled build cannot.
+      - run: npx playwright install --with-deps chrome
+
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: npm run make-stream
+      - run: npm run test:browser
+
+  model-parity:
+    name: PyTorch vs ONNX parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install numpy onnx onnxruntime matplotlib
+
+      # Re-export from the checkpoint and confirm the committed .onnx is
+      # reproducible and still matches the checkpoint bit-for-bit in behaviour.
+      - run: python export/export_onnx.py --out /tmp/check.onnx
+      - run: python export/validate_parity.py --model /tmp/check.onnx

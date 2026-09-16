@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>abrengine — fallback</title>
+    <link rel="stylesheet" href="/vendor/video-js.css" />
+    <script type="module">
+      import { STYLE } from '/_shared.js';
+      document.head.insertAdjacentHTML('beforeend', `<style>${STYLE}</style>`);
+    </script>
+    <script type="importmap">
+      { "imports": { "onnxruntime-web": "/vendor/ort.mjs" } }
+    </script>
+  </head>
+  <body>
+    <main>
+      <h1>Fallback</h1>
+      <p class="sub">
+        Break the controller on purpose. The video must keep playing, and the failure
+        must be reported rather than swallowed.
+      </p>
+
+      <video id="video" class="video-js" controls muted playsinline preload="auto"></video>
+
+      <div class="row">
+        <button id="break">Break inference</button>
+        <button id="fix">Repair</button>
+        <button id="bad">Feed an invalid observation</button>
+        <button id="tick">Force a decision tick</button>
+      </div>
+
+      <p class="note">
+        <strong>fallback: 'player-default'</strong> — the engine declines and the
+        adapter re-runs the <code>selectPlaylist</code> that Video.js installed before
+        this package overrode it (normally <code>Vhs.STANDARD_PLAYLIST_SELECTOR</code>).
+        That is the player's genuine default, not a re-implementation of it.
+      </p>
+
+      <pre id="log"></pre>
+    </main>
+
+    <!-- Must run before video.js. See codec-shim.js — a CI-only no-op in a normal browser. -->
+    <script src="/codec-shim.js"></script>
+    <script src="/vendor/video.js"></script>
+    <script type="module">
+      import { makeLogger } from '/_shared.js';
+      import { AbrEngine } from '/pkg/index.js';
+      import { VideoJSAbrAdapter } from '/pkg/videojs.js';
+
+      const log = makeLogger(document.getElementById('log'));
+
+      const player = videojs('video');
+
+      const abr = new AbrEngine({
+        model: 'ac3',
+        // Try 'throughput', 'buffer', 'lowest', 'hold', or your own function.
+        fallback: 'player-default',
+        telemetry: { enabled: true },
+      });
+
+      const adapter = new VideoJSAbrAdapter({ player, abr });
+      await adapter.initialize();
+
+      player.src({ src: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', type: 'application/x-mpegURL' });
+      player.play().catch(() => {});
+
+      abr.on('decision', (e) => {
+        const d = e.decision;
+        log(
+          `decision  ${d.source}${d.reason ? `(${d.reason})` : ''}` +
+            `  →  ${d.representationId || '[player default]'}` +
+            `  buffer ${e.bufferSec.toFixed(1)}s`,
+        );
+      });
+      abr.on('error', (e) => log(`ERROR    ${e.reason}: ${e.message}`));
+
+      player.on('error', () => log('PLAYER ERROR (this should never happen):', String(player.error()?.message)));
+
+      // ── Failure injection ────────────────────────────────────────────────
+      // Reaches into the engine's private session on purpose. Real failures —
+      // a corrupt model file, an ORT wasm load error, an OOM — surface through
+      // exactly the same path.
+      let healthy = null;
+
+      document.getElementById('break').onclick = () => {
+        if (!healthy) healthy = abr.session;
+        Object.defineProperty(abr, 'session', {
+          configurable: true,
+          writable: true,
+          value: {
+            async run() {
+              throw new Error('injected inference failure');
+            },
+          },
+        });
+        log('--- inference sabotaged; the player should not notice ---');
+      };
+
+      document.getElementById('fix').onclick = () => {
+        if (!healthy) return log('nothing to repair');
+        Object.defineProperty(abr, 'session', {
+          configurable: true,
+          writable: true,
+          value: healthy,
+        });
+        log('--- inference repaired ---');
+      };
+
+      document.getElementById('bad').onclick = async () => {
+        const d = await abr.decide({
+          timestampMs: performance.now(),
+          representations: [{ id: 'junk', bitrateBps: Number.NaN, enabled: true }],
+          currentRepresentationId: 'junk',
+          playback: {
+            bufferSec: Number.NaN,
+            rebufferSec: -1,
+            currentTimeSec: NaN,
+            durationSec: 0,
+            paused: false,
+          },
+          lastSegment: null,
+          remainingSegments: null,
+        });
+        log(`invalid observation → ${d.source} (${d.reason})`);
+      };
+
+      document.getElementById('tick').onclick = () => {
+        // The same event VHS raises once per appended segment.
+        player.tech(true).trigger('bandwidthupdate');
+        log('forced a tick');
+      };
+
+      window.abr = abr;
+      window.player = player;
+    </script>
+  </body>
+</html>

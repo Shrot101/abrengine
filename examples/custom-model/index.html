@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>abrengine — custom model</title>
+    <link rel="stylesheet" href="/vendor/video-js.css" />
+    <script type="module">
+      import { STYLE } from '/_shared.js';
+      document.head.insertAdjacentHTML('beforeend', `<style>${STYLE}</style>`);
+    </script>
+    <script type="importmap">
+      { "imports": { "onnxruntime-web": "/vendor/ort.mjs" } }
+    </script>
+  </head>
+  <body>
+    <main>
+      <h1>Custom model</h1>
+      <p class="sub">
+        Four ways to supply the controller, and how to keep the semantics straight
+        when you retrain.
+      </p>
+
+      <video id="video" class="video-js" controls muted playsinline preload="auto"></video>
+
+      <div class="row">
+        <label>Load a .onnx file: <input type="file" id="file" accept=".onnx" /></label>
+        <span id="status"></span>
+      </div>
+
+      <p class="note">
+        If you retrain with a different bitrate ladder or different normalisation
+        constants, tell the engine — otherwise every state tensor it builds is wrong
+        and the model will behave nothing like it did in training. Those constants
+        live in <code>semantics</code>, and <code>export/export_onnx.py</code> writes
+        the correct values into the model's sidecar <code>.json</code> manifest.
+      </p>
+
+      <pre id="log"></pre>
+    </main>
+
+    <!-- Must run before video.js. See codec-shim.js — a CI-only no-op in a normal browser. -->
+    <script src="/codec-shim.js"></script>
+    <script src="/vendor/video.js"></script>
+    <script type="module">
+      import { makeLogger } from '/_shared.js';
+      import { AbrEngine, bundledModelUrl } from '/pkg/index.js';
+      import { VideoJSAbrAdapter } from '/pkg/videojs.js';
+
+      const log = makeLogger(document.getElementById('log'));
+      const status = document.getElementById('status');
+
+      log('the four model sources:');
+      log("  1. bundled       model: 'ac3'");
+      log(`                   resolves to ${bundledModelUrl()}`);
+      log("  2. by URL        model: { type: 'url', url: '/models/ac3-controller.onnx' }");
+      log("  3. from bytes    model: { type: 'buffer', buffer: arrayBuffer }");
+      log("  4. your session  model: { type: 'session', session: { async run(state) {…} } }");
+      log('');
+
+      const player = videojs('video');
+
+      // (2) by URL — the right choice when the model is served from your CDN,
+      // because you control its cache headers and can roll it forward
+      // independently of the JS bundle.
+      let abr = new AbrEngine({
+        model: { type: 'url', url: '/models/ac3-controller.onnx' },
+
+        // Spell these out even when they match the defaults: it documents which
+        // model this configuration belongs to, and it fails loudly if you swap in
+        // a model that expects something else.
+        semantics: {
+          trainingLadderKbps: [300, 750, 1200, 1850, 2850, 4300],
+          ladderMapping: 'nearest-bitrate',
+          bufferNormSec: 10,
+          chunkNormBytes: 1e6,
+          throughputNorm: 1,
+          totalChunksNorm: 48,
+        },
+
+        telemetry: { enabled: true },
+      });
+
+      let adapter = new VideoJSAbrAdapter({ player, abr });
+      await adapter.initialize();
+      status.textContent = `loaded from URL · ${abr.runtime}`;
+      log('engine ready from /models/ac3-controller.onnx');
+
+      player.src({ src: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', type: 'application/x-mpegURL' });
+      player.play().catch(() => {});
+
+      abr.on('decision', (e) =>
+        log(`decision ${e.decision.source} action ${e.decision.actionIndex} → ${e.decision.representationId}`),
+      );
+
+      // (3) from bytes — swap the model at runtime without a page reload.
+      document.getElementById('file').onchange = async (ev) => {
+        const file = ev.target.files?.[0];
+        if (!file) return;
+        status.textContent = 'swapping…';
+        log(`\nloading ${file.name} (${(file.size / 1024).toFixed(0)} KiB)…`);
+
+        adapter.destroy();
+        await abr.destroy();
+
+        abr = new AbrEngine({
+          model: { type: 'buffer', buffer: await file.arrayBuffer() },
+          telemetry: { enabled: true },
+        });
+        adapter = new VideoJSAbrAdapter({ player, abr });
+        await adapter.initialize();
+
+        abr.on('decision', (e) =>
+          log(`decision ${e.decision.source} action ${e.decision.actionIndex} → ${e.decision.representationId}`),
+        );
+        abr.on('error', (e) => log(`ERROR ${e.reason}: ${e.message}`));
+
+        status.textContent =
+          abr.status === 'ready' ? `loaded ${file.name} · ${abr.runtime}` : `failed: ${abr.status}`;
+        log(`engine status: ${abr.status}`);
+        window.abr = abr;
+      };
+
+      window.abr = abr;
+    </script>
+  </body>
+</html>

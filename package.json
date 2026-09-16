@@ -1,0 +1,32 @@
+{
+  "name": "abrengine-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "ABREngine — RL-based ABR controller: PyTorch research code, ONNX export pipeline, and the abrengine npm package.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "npm run build -w abrengine",
+    "test": "npm run test -w abrengine",
+    "test:browser": "node test-e2e/run.mjs",
+    "test:all": "npm run test && npm run test:browser",
+    "typecheck": "npm run typecheck -w abrengine",
+    "lint": "npm run lint -w abrengine",
+    "format": "npm run format -w abrengine",
+    "export-model": "python export/export_onnx.py && python export/make_fixtures.py && python export/make_state_fixtures.py",
+    "validate-model": "python export/validate_parity.py",
+    "make-stream": "bash test-e2e/make-stream.sh",
+    "bench": "node scripts/bench.mjs",
+    "size": "node scripts/report-size.mjs",
+    "example": "node examples/server.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
+}

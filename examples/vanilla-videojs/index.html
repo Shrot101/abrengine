@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>abrengine — vanilla Video.js</title>
+    <link rel="stylesheet" href="/vendor/video-js.css" />
+    <script type="module">
+      import { STYLE } from '/_shared.js';
+      document.head.insertAdjacentHTML('beforeend', `<style>${STYLE}</style>`);
+    </script>
+    <!--
+      No bundler here, so a bare `onnxruntime-web` specifier needs an import map.
+      A Vite / webpack / Rollup app resolves it from node_modules instead and
+      needs none of this.
+    -->
+    <script type="importmap">
+      { "imports": { "onnxruntime-web": "/vendor/ort.mjs" } }
+    </script>
+  </head>
+  <body>
+    <main>
+      <h1>Vanilla Video.js</h1>
+      <p class="sub">
+        The whole integration is the six lines below the player. Everything else on
+        this page is scaffolding.
+      </p>
+
+      <video id="video" class="video-js" controls muted playsinline preload="auto"></video>
+
+      <div class="row">
+        <button id="toggle">Disable custom ABR</button>
+        <span id="status">loading…</span>
+      </div>
+
+      <pre id="log"></pre>
+    </main>
+
+    <!-- Must run before video.js. See codec-shim.js — a CI-only no-op in a normal browser. -->
+    <script src="/codec-shim.js"></script>
+    <script src="/vendor/video.js"></script>
+    <script type="module">
+      import { makeLogger } from '/_shared.js';
+      import { AbrEngine } from '/pkg/index.js';
+      import { VideoJSAbrAdapter } from '/pkg/videojs.js';
+
+      const log = makeLogger(document.getElementById('log'));
+      if (window.__codecShim?.shimmed) log('[codec shim]', window.__codecShim.reason);
+
+      // ── This is the integration ──────────────────────────────────────────
+      const player = videojs('video');
+
+      const abr = new AbrEngine({
+        model: 'ac3',
+        fallback: 'player-default',
+      });
+
+      const adapter = new VideoJSAbrAdapter({ player, abr });
+      await adapter.initialize();
+      // ─────────────────────────────────────────────────────────────────────
+
+      player.src({ src: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', type: 'application/x-mpegURL' });
+      player.play().catch(() => log('autoplay blocked — press play'));
+
+      // Scaffolding: show what is happening.
+      const status = document.getElementById('status');
+      status.textContent = `engine ${abr.status} via ${abr.runtime}`;
+      log('engine', abr.status, 'runtime', abr.runtime);
+
+      adapter.on('apply', (e) => {
+        if (e.applied) log('→', e.decision.source, 'selected', e.decision.representationId);
+      });
+
+      const toggle = document.getElementById('toggle');
+      toggle.onclick = () => {
+        if (abr.enabled) {
+          abr.disable();
+          toggle.textContent = 'Enable custom ABR';
+          log('custom ABR disabled — Video.js default is back in charge');
+        } else {
+          abr.enable();
+          toggle.textContent = 'Disable custom ABR';
+          log('custom ABR enabled');
+        }
+      };
+
+      window.player = player;
+      window.abr = abr;
+      window.adapter = adapter;
+    </script>
+  </body>
+</html>

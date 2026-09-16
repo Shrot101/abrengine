@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>abrengine — Video.js end-to-end test</title>
+    <link rel="stylesheet" href="/vendor/video-js.css" />
+    <style>
+      body { font: 14px system-ui, sans-serif; margin: 16px; background: #111; color: #eee; }
+      #video { width: 640px; height: 360px; }
+      pre { background: #000; padding: 8px; max-height: 40vh; overflow: auto; }
+    </style>
+  </head>
+  <body>
+    <video id="video" class="video-js" controls muted playsinline preload="auto"></video>
+    <pre id="log"></pre>
+
+    <!--
+      ── Codec-probe shim (CI only; a no-op in a normal browser) ──────────────
+
+      videojs-http-streaming refuses to register its source handler at all
+      unless the browser can decode H.264 + AAC in MediaSource:
+
+          const supportsNativeMediaSources = () =>
+            browserSupportsCodec('avc1.4d400d,mp4a.40.2', true);
+          if (supportsNativeMediaSources()) {
+            videojs.getTech('Html5').registerSourceHandler(VhsSourceHandler, 0);
+          }
+
+      That check is about the *browser*, not about the stream. Chromium builds
+      without proprietary codecs (Playwright's bundled Chromium, most Linux
+      distro chromium packages) fail it, so VHS never loads there — even for a
+      VP9/Opus stream they can decode perfectly well.
+
+      When (and only when) H.264 is genuinely unavailable, this shim answers
+      `true` for that one probe string so VHS registers. NOTHING ELSE IS FAKED:
+      the stream is real VP9/Opus fMP4, MediaSource really appends it, and the
+      browser really decodes and renders it. Every isTypeSupported query about
+      the codecs actually in the stream is answered by the browser itself.
+
+      On a browser with H.264 (any shipping Chrome/Edge/Safari, and CI using
+      `playwright install chrome`) `shimmed` stays false and this code does
+      nothing.
+    -->
+    <script>
+      window.__codecShim = { shimmed: false, reason: 'browser has H.264 MSE support' };
+      (function () {
+        var PROBE = 'video/mp4;codecs="avc1.4d400d,mp4a.40.2"';
+        var normalised = PROBE.replace(/\s/g, '');
+        if (!window.MediaSource || typeof MediaSource.isTypeSupported !== 'function') return;
+        if (MediaSource.isTypeSupported(PROBE)) return;
+        var real = MediaSource.isTypeSupported.bind(MediaSource);
+        MediaSource.isTypeSupported = function (type) {
+          if (typeof type === 'string' && type.replace(/\s/g, '') === normalised) return true;
+          return real(type);
+        };
+        window.__codecShim = {
+          shimmed: true,
+          reason: 'no H.264/AAC MediaSource support; VHS registration probe answered true',
+        };
+      })();
+    </script>
+    <script src="/vendor/video.js"></script>
+    <!--
+      The built package imports 'onnxruntime-web' as a bare specifier (it is an
+      optional peer dependency, deliberately not bundled). In a bundler-less
+      page that needs an import map; a Vite/webpack app resolves it from
+      node_modules instead.
+    -->
+    <script type="importmap">
+      { "imports": { "onnxruntime-web": "/vendor/ort.mjs" } }
+    </script>
+    <script type="module">
+      import { AbrEngine } from '/pkg/index.js';
+      import { VideoJSAbrAdapter } from '/pkg/videojs.js';
+
+      const log = (...a) => {
+        const line = a.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ');
+        document.getElementById('log').textContent += line + '\n';
+        // eslint-disable-next-line no-console
+        console.log('[e2e]', line);
+      };
+
+      // Everything the harness asserts on lives here.
+      window.__e2e = {
+        ready: false,
+        engineStatus: null,
+        runtime: null,
+        loadMs: null,
+        decisions: [],
+        errors: [],
+        applies: [],
+        vhsCapabilities: null,
+        selectedPlaylists: [],
+        playbackErrors: [],
+        modelParityProbe: null,
+        codecShim: window.__codecShim,
+        done: false,
+      };
+
+      const player = videojs('video', {
+        html5: {
+          vhs: { overrideNative: true },
+          nativeAudioTracks: false,
+          nativeVideoTracks: false,
+        },
+        // Start the bandwidth estimate low so the default ABR would pick a low
+        // rendition — makes it obvious when the model overrides it.
+        bandwidth: 500000,
+      });
+
+      player.on('error', () => {
+        window.__e2e.playbackErrors.push(String(player.error()?.message ?? 'unknown'));
+      });
+
+      const abr = new AbrEngine({
+        // Explicit URL rather than 'ac3': the harness serves the model itself,
+        // and this is also the code path a CDN deployment uses.
+        model: { type: 'url', url: '/models/ac3-controller.onnx' },
+        inference: { runtime: 'onnxruntime-web', executionProviders: ['wasm'], wasmThreads: 1 },
+        telemetry: { enabled: true, historySize: 100, includeTensors: true },
+        fallback: 'player-default',
+        debug: true,
+      });
+
+      abr.on('ready', (e) => {
+        window.__e2e.ready = true;
+        window.__e2e.runtime = e.runtime;
+        window.__e2e.loadMs = e.loadMs;
+        log('engine ready', e.runtime, `${e.loadMs.toFixed(0)}ms`, `${e.modelBytes}B`);
+      });
+      abr.on('error', (e) => {
+        window.__e2e.errors.push({ reason: e.reason, message: e.message });
+        log('engine error', e.reason, e.message);
+      });
+      abr.on('decision', (e) => {
+        window.__e2e.decisions.push({
+          source: e.decision.source,
+          reason: e.decision.reason,
+          actionIndex: e.decision.actionIndex,
+          representationId: e.decision.representationId,
+          selectedBitrateBps: e.decision.bitrateBps,
+          bufferSec: e.bufferSec,
+          throughputBps: e.throughputBps,
+          downloadSec: e.downloadSec,
+          segmentBytes: e.segmentBytes,
+          inferenceMs: e.inferenceMs,
+          totalMs: e.totalMs,
+          probs: e.decision.model ? Array.from(e.decision.model.actionProbs) : null,
+          stateValue: e.decision.model ? e.decision.model.stateValue : null,
+          modelInput: e.modelInput ? Array.from(e.modelInput) : null,
+        });
+      });
+
+      const adapter = new VideoJSAbrAdapter({ player, abr, debug: true });
+      adapter.on('attach', (e) => {
+        window.__e2e.vhsCapabilities = e.capabilities;
+        log('adapter attached', JSON.stringify(e.capabilities));
+      });
+      adapter.on('apply', (e) => {
+        window.__e2e.applies.push({
+          applied: e.applied,
+          to: e.decision.representationId,
+          from: e.fromRepresentationId,
+          source: e.decision.source,
+        });
+      });
+
+      window.__abr = abr;
+      window.__adapter = adapter;
+      window.__player = player;
+
+      player.src({ src: '/stream/master.m3u8', type: 'application/x-mpegURL' });
+
+      await adapter.initialize();
+      window.__e2e.engineStatus = abr.status;
+      log('adapter initialized; engine status', abr.status);
+
+      // A parity probe the harness compares against Node/PyTorch: run a fixed
+      // state through the browser's ONNX session.
+      {
+        const probe = new Float32Array(48);
+        for (let i = 0; i < 8; i++) { probe[i] = 3.5; probe[8 + i] = 1.1; }
+        const cs = [0.15, 0.375, 0.6, 0.925, 1.425, 2.15];
+        for (let i = 0; i < 6; i++) probe[16 + i] = cs[i];
+        probe[31] = 1.2; probe[39] = 0.75; probe[47] = 0.6;
+        const ort = await import('onnxruntime-web');
+        ort.env.wasm.numThreads = 1;
+        const s = await ort.InferenceSession.create('/models/ac3-controller.onnx', {
+          executionProviders: ['wasm'],
+        });
+        const r = await s.run({ state: new ort.Tensor('float32', probe, [1, 6, 8]) });
+        window.__e2e.modelParityProbe = {
+          input: Array.from(probe),
+          probs: Array.from(r.action_probs.data),
+          value: r.state_value.data[0],
+        };
+        log('parity probe', JSON.stringify(window.__e2e.modelParityProbe.probs));
+      }
+
+      // Record what VHS actually ends up playing.
+      const vhs = player.tech(true).vhs;
+      setInterval(() => {
+        try {
+          const m = vhs.playlists.media();
+          if (m) {
+            const last = window.__e2e.selectedPlaylists.at(-1);
+            const id = m.id ?? m.uri;
+            if (last?.id !== id) {
+              window.__e2e.selectedPlaylists.push({
+                id,
+                bandwidth: m.attributes?.BANDWIDTH,
+                atSec: player.currentTime(),
+              });
+              log('playing rendition', id, m.attributes?.BANDWIDTH);
+            }
+          }
+        } catch (err) {
+          void err;
+        }
+      }, 100);
+
+      await player.play().catch((e) => log('play() rejected', String(e)));
+      log('playback started');
+    </script>
+  </body>
+</html>
