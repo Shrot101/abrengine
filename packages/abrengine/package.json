@@ -1,6 +1,6 @@
 {
   "name": "abrengine",
-  "version": "0.1.0",
+  "version": "1.0.1",
   "description": "Run a trained reinforcement-learning ABR controller (Pensieve-style A3C) as the adaptive-bitrate algorithm in JavaScript video players. Framework-agnostic core + Video.js/VHS adapter.",
   "license": "MIT",
   "type": "module",

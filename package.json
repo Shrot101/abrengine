@@ -1,7 +1,7 @@
 {
   "name": "abrengine-monorepo",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.1",
   "description": "ABREngine — RL-based ABR controller: PyTorch research code, ONNX export pipeline, and the abrengine npm package.",
   "type": "module",
   "workspaces": [
